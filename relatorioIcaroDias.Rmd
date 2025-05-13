@@ -1,0 +1,286 @@
+---
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r, echo = FALSE}
+knitr::opts_chunk$set(
+  message = FALSE,
+  warning = FALSE
+)
+```
+
+# Introdução
+
+Este relatório tem como objetivo apresentar uma análise detalhada sobre os preços de combustíveis no ano de 2023, com base nos dados fornecidos. Buscando identificar padrões, tendências e possíveis fatores que influenciem os preços.
+
+# 1. Características dos Dados
+O Conjunto de dados contém 904000 observações e 16 variáveis, nas quais se dividem em localização, preço, tipo de combustível, dentre outros. Isso nos oferece a oportunidade de realizar várias análises e relações entre variáveis.
+
+## 1.1. Descrição das Variáveis
+
+Para entender melhor o conteúdo dos dados, começamos pela descrição das variáveis presentes nos arquivos. Os arquivos possuem 16 colunas/variáveis, nas quais a grande maioria são autoexplicativas, no entanto, algumas podem ter seu significado um pouco confuso, por isso abaixo apresento uma tabela que explica 4 variáveis que podem ser estranhas no primeiro contato:
+
+```{r, echo = FALSE}
+library(readr)
+library(dplyr)
+library(ggplot2)
+library(knitr)
+library(flextable)
+library(lubridate)
+library(tidyr)
+zip1 <- "C:/Users/neneq/OneDrive/Faculdade/2024.2/metodos/ca-2023-01.zip"
+zip2 <- "C:/Users/neneq/OneDrive/Faculdade/2024.2/metodos/ca-2023-02.zip"
+
+read_csv_from_zip <- function(zip_path) {
+  file_name <- unzip(zip_path, list = TRUE)$Name[1]
+  data <- read_delim(unz(zip_path, file_name), delim = ";", col_types = cols(.default = "c"))
+  return(data)
+}
+
+data1 <- read_csv_from_zip(zip1)
+data2 <- read_csv_from_zip(zip2)
+data <- bind_rows(data1, data2)
+data$`Valor de Venda` <- as.numeric(gsub(",", ".", data$`Valor de Venda`))
+mediabandeira <- data %>%
+  group_by(Bandeira) %>%
+  summarise(Media_Valor_Venda = mean(`Valor de Venda`, na.rm = TRUE))
+```
+
+```{r, echo = FALSE}
+colunas_selecionadas <- c("Revenda", "Produto", "Valor de Venda", "Bandeira") 
+
+descricoes <- c("Nome do posto de onde foi vendido o combustível",
+                "Tipo de combustível vendido",
+                "Valor de venda dos combustíveis",
+                "Bandeira do combustível comprado")
+
+tabela_variaveis <- tibble(
+  Variável = colunas_selecionadas,
+  Descrição = descricoes
+)
+
+
+flextable(tabela_variaveis) %>%
+  theme_vanilla() %>%
+  autofit()
+
+```
+
+## 1.2. Dados Faltantes
+Também é importante salientar os valores faltantes, as seguintes colunas apresentam a respectiva quantidade de dados faltantes:
+
+```{r, echo = FALSE}
+dados_faltantes <- colSums(is.na(data))
+dados_faltantes <- dados_faltantes[dados_faltantes > 0]
+dados_faltantes
+```
+
+Foco para a coluna "Valor de Compra", a qual está totalmente vazia. A coluna "Complemento" também apresenta boa parte de valores faltantes, cerca de 76,96%. No entanto, os valores faltantes da coluna "Complemento" não prejudicam nossa análise, já que são dados complementares.
+De maneira geral, os dados faltantes não atrapalham a análise feita nesse banco de dados, já que são todos dados de localização precisa como número e bairro. Apenas a coluna "Valor de Compra" que poderia possibilitar algumas análises complementares.
+
+## 1.3. Valor de combustível por região
+Abaixo, coloco uma tabela que mostra os valores de cada combustível de acordo com a sua respectiva região, para compararmos se o preço do combustível tem reflexo da região na qual é vendido. **Os preços dos combustíveis estão expressos em reais por litro, exceto o GNV, que é medido em reais por metro cúbico (m³).**
+
+```{r, echo = FALSE}
+media_por_regiao <- data %>%
+  group_by(`Regiao - Sigla`, Produto) %>% 
+  summarise(Media_Valor_Venda = round(mean(`Valor de Venda`, na.rm = TRUE), 2)) %>% 
+  ungroup()
+tabela_arrumada <- media_por_regiao %>%
+  pivot_wider(names_from = Produto, values_from = Media_Valor_Venda)
+
+
+tabela_formatada <- tabela_arrumada %>%
+  mutate(`Regiao - Sigla` = case_when(
+    `Regiao - Sigla` == "N"  ~ "Norte",
+    `Regiao - Sigla` == "NE" ~ "Nordeste",
+    `Regiao - Sigla` == "CO" ~ "Centro-Oeste",
+    `Regiao - Sigla` == "SE" ~ "Sudeste",
+    `Regiao - Sigla` == "S"  ~ "Sul",
+    TRUE ~ `Regiao - Sigla` 
+  )) %>%
+  flextable() %>%
+  set_header_labels(`Regiao - Sigla` = "Região") %>%
+  autofit() %>% 
+  theme_vanilla() %>%  
+  bold(part = "header") %>%  
+  color(part = "header", color = "white") %>%
+  bg(part = "header", bg = "#0073C2")  
+
+tabela_formatada
+```
+
+É notável a diferença de preço dos combustíveis de acordo com as regiões que são comercializados, isso se deve a diversos fatores como: 
+
+Distância: Quanto mais longe dos locais de produção, mais caro fica o transporte do combustível.
+
+Concorrência: Em lugares com muitos postos, o preço pode ser mais baixo por causa da disputa entre eles.
+
+Infraestrutura: Regiões perto de refinarias e distribuidoras costumam ter preços menores.
+
+Demanda: Se um tipo de combustível é mais usado em uma região, o preço pode mudar por causa da oferta e procura.
+
+## 1.4. Distribuição do Preço do Combustível por Região
+Abaixo, coloco boxplots que mostram a distribuição do preço de combustível em relação a cada uma das 5 regiões, para uma análise breve.
+
+```{r, echo = FALSE}
+nomes_regioes <- c(
+  "N" = "Norte",
+  "NE" = "Nordeste",
+  "CO" = "Centro-Oeste",
+  "SE" = "Sudeste",
+  "S" = "Sul"
+)
+ggplot(data, aes(x = `Regiao - Sigla`, y = `Valor de Venda`)) +
+  geom_boxplot(fill = "steelblue", color = "black") +
+  scale_x_discrete(labels = nomes_regioes) +
+  labs(title = "Distribuição do Preço dos Combustíveis por Região",
+       x = "Região",
+       y = "Preço (R$)") +
+  theme_minimal()
+
+```
+
+
+# 2. Discussão sobre os dados
+
+Agora que os dados foram resumidamente explicados, podemos partir para algumas discussões com base nesses dados, para retirarmos alguns insights valiosos.
+
+## 2.1. Perguntas
+
+## 2.1.1. Como é a distruição do comércio de combustíveis entre as regiões? Alguma expressa mais influência?
+
+```{r, echo = FALSE}
+mapa_regioes <- c("CO" = "Centro-Oeste", 
+                  "N" = "Norte", 
+                  "NE" = "Nordeste", 
+                  "S" = "Sul", 
+                  "SE" = "Sudeste")
+contagem_regioes <- table(data$'Regiao - Sigla')
+proporcoes <- prop.table(contagem_regioes)
+df_proporcoes <- as.data.frame(proporcoes)
+colnames(df_proporcoes) <- c("Regiao", "Proporcao")
+ggplot(df_proporcoes, aes(x = "", y = Proporcao, fill = Regiao)) +
+  geom_bar(stat = "identity", width = 1, color = "white") +
+  coord_polar(theta = "y") +
+  theme_void() +
+  scale_fill_manual(values = RColorBrewer::brewer.pal(length(mapa_regioes), "Set3"),
+                    labels = mapa_regioes) +
+  labs(title = "Proporção das Regiões de Venda de Combustível", fill = "Região") +
+  geom_text(aes(label = paste0(round(Proporcao * 100, 1), "%")), 
+            position = position_stack(vjust = 0.5), color = "black", fontface = "bold")
+```
+
+Com base no gráfico, podemos concluir que a região Sudeste possui a maior participação nas vendas de combustível. Esse destaque pode ser atribuído a diversos fatores que influenciam diretamente o consumo, como:
+
+Alta densidade populacional, urbanização, atividade econômica e infraestrutura de transporte.
+
+Também podemos concluir que como o Norte e o Centro-Oeste são regiões com vastas áreas de floresta e zonas rurais, a densidade populacional é menor, além disso o transporte pode ser menos dependente de combustíveis fósseis, utilizando mais transporte fluvial ou aéreo.
+
+## 2.1.2. Quais os tipos de combustíveis mais comercializados? 
+```{r, echo = FALSE}
+contagem_produtos <- table(data$Produto)
+
+proporcoes_produtos <- prop.table(contagem_produtos)
+
+df_proporcoes_produtos <- as.data.frame(proporcoes_produtos)
+colnames(df_proporcoes_produtos) <- c("Produto", "Proporcao")
+df_proporcoes_produtos <- df_proporcoes_produtos %>%
+  arrange(Proporcao)
+
+ggplot(df_proporcoes_produtos, aes(x = "", y = Proporcao, fill = Produto)) +
+  geom_bar(stat = "identity", width = 1, color = "white") +
+  coord_polar(theta = "y") +
+  theme_void() +
+  theme(legend.title = element_blank()) +
+  scale_fill_brewer(palette = "Set2") + 
+  labs(title = "Proporção de Produtos") +
+  geom_text(aes(label = paste0(round(Proporcao * 100, 1), "%")), 
+            position = position_stack(vjust = 0.5), color = "black", fontface = "bold")
+```
+Aqui podemos perceber que a gasolina/gasolina aditivada são de extremo domínio representando quase 50% de toda a venda de combustíveis em 2023, isso se deve ao fato de ser o combustível mais utilizado por veículos pessoais. Em seguida o etanol por ser considerado por muitos brasileiros como mais barato, além disso é um reflexo do incentivo ao uso de combustíveis renováveis e da política de flex-fuel dos veículos brasileiros.
+Logo depois diesel e diesel s10, que é uma vertente com menor teor de enxofre, são utilizados principalmente em veículos pesados e caminhões.
+Com menor expressão, temos o GNV, já que não é tão popular no território nacional.
+
+## 2.1.3. Qual o preço médio ao longo do ano? Ele aumenta ou diminui em datas específicas?
+```{r, echo = FALSE}
+gasolinaeaditivado <- data %>%
+  filter(Produto %in% c("GASOLINA", "GASOLINA ADITIVADA", "ETANOL", "DIESEL", "DIESEL S10", "GNV"))
+gasolinaeaditivado$`Data da Coleta` <- as.Date(gasolinaeaditivado$`Data da Coleta`, format="%d/%m/%Y")
+
+gasolinaeaditivado <- gasolinaeaditivado %>%
+  mutate(Mes_Ano = floor_date(`Data da Coleta`, "month"))  
+
+dados_mensais <- gasolinaeaditivado %>%
+  group_by(Mes_Ano, Produto) %>%
+  summarise(Valor_Medio = mean(`Valor de Venda`, na.rm = TRUE)) %>%
+  ungroup()
+
+ggplot(dados_mensais, aes(x = Mes_Ano, y = Valor_Medio, color = Produto, group = Produto)) +
+  geom_line(linewidth = 1) +
+  geom_point(size = 2) +
+  labs(title = "Evolução do Preço Médio dos Combustíveis por Mês de 2023",
+       x = "Mês",
+       y = "Preço Médio (R$)",
+       color = "Tipo de Gasolina") +
+  theme_minimal() +
+  scale_x_date(date_labels = "%b %Y", date_breaks = "1 month") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+Podemos tirar diversos insights dos dados apresentados nesse gráfico. Por exemplo: 
+Os preços caíram no meio do ano e subiram depois, a maioria dos combustíveis ficou mais barata entre maio e julho, mas voltou a subir depois de agosto.
+
+O Diesel e a Gasolina tiveram grandes variações, começaram caros, caíram bastante no meio do ano e depois subiram de novo.
+
+O Etanol foi o mais barato o ano todo, se mantendo sempre abaixo dos outros combustíveis.
+
+O GNV foi o mais estável, teve poucas mudanças ao longo do ano.
+
+A Gasolina Aditivada sempre foi um pouco mais cara que a comum, mas seguiram a mesma tendência de preço.O padrão se repete quando analisamos o diesel e diesel s10, com o diesel s10 se mantendo um pouco mais caro que o normal.
+
+No geral, a tendência não é de crescimento ou decrescimento contínuo no valor, mas sim de oscilações. No primeiro semestre, os preços diminuíram, e no segundo semestre, voltaram a subir, fechando o ano em um patamar mais alto para a maioria dos combustíveis.
+
+## 2.1.4.  Qual o preço médio dos combustíveis por cada bandeira, existem bandeiras mais caras?
+```{r, echo = FALSE}
+percentis <- quantile(mediabandeira$Media_Valor_Venda, probs = c(0.1, 0.9), na.rm = TRUE)
+limite_inferior <- percentis[1]
+limite_superior <- percentis[2]
+dados_agrupados <- mediabandeira %>%
+  group_by(Bandeira) %>%
+  mutate(categoria = case_when(
+    Media_Valor_Venda <= limite_inferior ~ as.character(Bandeira),
+    Media_Valor_Venda >= limite_superior ~ as.character(Bandeira),
+    TRUE ~ "Outros"
+  ))
+ggplot(dados_agrupados, aes(x = reorder(categoria, Media_Valor_Venda), y = Media_Valor_Venda, fill = categoria)) +
+  stat_summary(fun = mean, geom = "bar") +
+  scale_fill_manual(values = c("Outros" = "red", "default" = "steelblue")) +
+  labs(title = "Média do Valor de Venda por Bandeira, 90% superior e inferior",
+       x = "Bandeira do Combustível",
+       y = "Valor médio, em reais") +
+  coord_flip() +
+  theme_minimal() +
+theme(
+    axis.text.y = element_text(size = 6),
+    axis.title.y = element_blank(),
+    legend.position = "none",
+    plot.margin = margin(t = 1, r = 1, b = 1, l = 1),
+    plot.title = element_text(hjust = 0)
+  )
+```
+De maneira geral as bandeiras não apresentam uma diferença tão discrepante no valor dos combustíveis, apenas caso compararmos as mais baratas com as mais caras, mas, em geral, a média está bem próxima. A diferença de preço entre as distribuidoras pode estar relacionada ao tipo de combustível comercializado. O etanol, por exemplo, tende a ser mais barato do que o diesel e o diesel S10.
+
+# 3. Conclusão
+
+A análise dos dados de comercialização de combustíveis em 2023 permitiu identificar padrões relevantes sobre preços, distribuição regional e comportamento do mercado ao longo do ano. Observamos que a região Sudeste se destaca como a principal consumidora de combustíveis, reflexo de sua alta densidade populacional e atividade econômica intensa. Além disso, a gasolina e a gasolina aditivada representaram quase 50% das vendas, reforçando a preferência pelo combustível fóssil em veículos particulares, enquanto o etanol se mostrou uma alternativa relevante devido a incentivos fiscais e ao modelo flex-fuel predominante no Brasil.
+
+Os preços dos combustíveis apresentaram variações sazonais, com queda no meio do ano e alta no segundo semestre, sem uma tendência linear de aumento ou diminuição. Entre os combustíveis, o etanol se destacou como o mais acessível, enquanto o GNV manteve maior estabilidade de preço ao longo do período analisado.
+
+Por fim, a comparação entre bandeiras revelou que, de maneira geral, não há uma discrepância significativa nos preços, sendo as diferenças mais associadas ao tipo de combustível comercializado por cada distribuidora. Esse estudo fornece informações valiosas para entender a dinâmica do mercado de combustíveis e pode servir como base para futuras investigações sobre os fatores que influenciam os preços e a demanda em diferentes regiões do país.
+
+
+
+
+
